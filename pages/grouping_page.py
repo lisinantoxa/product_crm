@@ -57,7 +57,6 @@ class GroupingPage(BasePage):
 
     def fill_detail_product_groupl(self, product):
         """Заполняем деталь Продукт в группировке"""
-        sleep(5)
         self.click(self.GROUP_PRODUCT_ADD_BTN)
         self.is_element_displayed(self.GROUP_PRODUCT_CHOICE)
         self.enter_text(self.GROUP_PRODUCT_CHOICE, product)
