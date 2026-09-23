@@ -1,78 +1,68 @@
-import time
-
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.webdriver.remote.webelement import WebElement
-from config.settings import EXPLICIT_WAIT
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException, WebDriverException
-from typing import List, Optional
+from playwright.sync_api import Page, expect
+from typing import Optional
 
 
 class BasePage:
-    """Базовый класс для всех Page Objects."""
+    """Базовый класс для Page Objects на Playwright.
 
-    def __init__(self, driver: WebDriver):
-        self.driver = driver
-        self.wait = WebDriverWait(driver, EXPLICIT_WAIT)
+    Использует строковые селекторы (CSS, xpath=..., text=...).
+    """
+
+    def __init__(self, page: Page, base_url: Optional[str] = None):
+        self.page = page
+        self.base_url = base_url or ""
 
     def open(self, url: str):
-        """Открывает указанный URL."""
-        self.driver.get(url)
+        self.page.goto(url)
+        return self
 
-    def find_element(self, locator: tuple) -> WebElement:
-        """Находит один элемент с явным ожиданием."""
-        return self.wait.until(EC.visibility_of_element_located(locator))
+    def locator(self, selector: str):
+        return self.page.locator(selector)
 
-    def find_elements(self, locator: tuple) -> List[WebElement]:
-        """Находит все элементы по локатору."""
-        return self.wait.until(EC.presence_of_all_elements_located(locator))
+    def click(self, selector: str, timeout: int = 30000):
+        """Кликает по элементу через locator API и ждёт, пока действие выполнится."""
+        self.page.locator(selector).click(timeout=timeout)
+        return self
 
-    def click(self, locator: tuple, timeout: int = 10):
-        """Кликает на элемент, ожидая, что он кликабелен; на ошибке — fallback через JS; делает скриншот при падении."""
+    def dblclick(self, selector: str, timeout: int = 30000):
+        """Кликает по элементу через locator API и ждёт, пока действие выполнится."""
+        self.page.locator(selector).dblclick(timeout=timeout)
+        return self
+
+    def fill(self, selector: str, text: str, timeout: int = 30000):
+        self.page.locator(selector).fill(text, timeout=timeout)
+        return self
+
+    def fill_with_enter(self, selector: str, text: str, timeout: int = 30000):
+        self.page.locator(selector).press_sequentially(text, timeout=timeout)
+        self.page.locator(selector).press("Enter")
+        return self
+
+    def get_text(self, selector: str) -> str:
+        return self.page.locator(selector).inner_text()
+
+    def is_visible(self, selector: str, timeout: int = 20000) -> bool:
         try:
-            element = WebDriverWait(self.driver, timeout).until(EC.element_to_be_clickable(locator))
-            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-            element.click()
-        except ElementClickInterceptedException:
-            self.driver.execute_script("arguments[0].click();", element)
-        except (TimeoutException, WebDriverException) as exc:
-            # можно сделать скриншот здесь: self.driver.save_screenshot(...)
-            raise
-
-    def enter_text(self, locator: tuple, text: str):
-        """Вводит текст в поле ввода."""
-        element = self.find_element(locator)
-        element.clear()
-        element.send_keys(text)
-
-    def get_text(self, locator: tuple) -> str:
-        """Возвращает текст элемента."""
-        return self.find_element(locator).text
-
-    def is_element_displayed(self, locator: tuple) -> bool:
-        """Проверяет, отображается ли элемент на странице."""
-        try:
-            return self.find_element(locator).is_displayed()
-        except TimeoutException:
-            return False
-
-    def is_element_not_present(self, locator, timeout: int = 3) -> bool:
-        """
-        Проверяет, что элемент отсутствует на странице.
-        Возвращает True, если элемент не появился в течение timeout секунд.
-        """
-        try:
-            WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located(locator)
-            )
-            return False
-        except TimeoutException:
+            self.page.locator(selector).wait_for(state="visible", timeout=timeout)
             return True
-
-    def is_element_enabled(self, locator: tuple) -> bool:
-        """Проверяет, доступен ли элемент для взаимодействия."""
-        try:
-            return self.find_element(locator).is_enabled()
-        except TimeoutException:
+        except Exception:
             return False
+
+    def wait_for(self, selector: str, state: str = "visible", timeout: int = 30000):
+        self.page.locator(selector).wait_for(state=state, timeout=timeout)
+        return self
+
+    def wait_until_enabled(self, selector: str, timeout: int = 15000, check_initially_disabled: bool = True) -> None:
+        """
+        Убедиться, что элемент (кнопка) сначала задизейблен (если check_initially_disabled=True),
+        и станет активным (enabled) в течение timeout миллисекунд.
+        """
+        locator = self.page.locator(selector)
+
+        # опционально проверить, что элемент изначально disabled
+        if check_initially_disabled:
+            # короткий таймаут — проверяем что он disabled прямо сейчас
+            expect(locator).to_contain_class("t-btn-disabled", timeout=1000)
+
+        # ждём, пока элемент не станет enabled в пределах timeout
+        expect(locator).not_to_contain_class("t-btn-disabled",timeout=timeout)
